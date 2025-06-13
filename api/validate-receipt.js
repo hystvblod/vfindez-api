@@ -11,13 +11,22 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
 
 export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  // 🔐 CORS — réponse rapide pour OPTIONS
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    return res.status(200).end();
+  }
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Méthode non autorisée' });
+  // 🔐 CORS — pour POST
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Méthode non autorisée' });
+  }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
     return res.status(500).json({ error: 'Clés Supabase manquantes (env)' });
@@ -28,7 +37,6 @@ export default async function handler(req, res) {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
-  // === PREMIUM ===
   if (achat === 'premium') {
     try {
       const now = new Date();
@@ -72,7 +80,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // === PACKS ===
   const PIECE_PACKS = {
     pack_099: { base: 1500, bonus: 500, flag: 'firstBuy_099' },
     pack_199: { base: 4000, bonus: 1000, flag: 'firstBuy_199' },
