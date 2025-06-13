@@ -5,12 +5,21 @@ const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Méthode non autorisée" });
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
   const { userId, achat, quantite } = req.body;
-  if (!userId || !achat) return res.status(400).json({ error: "Données manquantes" });
 
-  // Gestion premium (OK)
+  if (!userId || !achat) {
+    return res.status(400).json({ error: "userId ou achat manquant" });
+  }
+
+  // PREMIUM (comme avant)
   if (achat === "premium") {
     const start = new Date();
     const end = new Date();
@@ -25,36 +34,42 @@ export default async function handler(req, res) {
       })
       .eq('id', userId);
 
-    if (error) return res.status(500).json({ error: "Erreur Supabase", details: error.message });
+    if (error) return res.status(500).json({ error: "Erreur update premium", details: error.message });
     return res.status(200).json({ success: true, message: "Premium activé !" });
   }
 
-  // Gestion achat de points/pièces
+  // POINTS
   if (achat === "points" || achat === "piece") {
-    if (!quantite || isNaN(quantite)) return res.status(400).json({ error: "Quantité invalide" });
+    if (!quantite || isNaN(quantite)) {
+      return res.status(400).json({ error: "quantite manquante ou invalide" });
+    }
 
-    // 1. Récupère le score actuel
+    // 1. Récupère points actuels
     const { data, error: getError } = await supabase
       .from('users')
       .select('points')
       .eq('id', userId)
       .single();
 
-    if (getError) return res.status(500).json({ error: "Utilisateur non trouvé", details: getError.message });
+    if (getError) {
+      return res.status(500).json({ error: "Utilisateur introuvable", details: getError.message });
+    }
 
-    // 2. Additionne les points
-    const nouveauTotal = (data.points || 0) + Number(quantite);
+    // 2. Additionne et update
+    const nouveauTotal = (data?.points || 0) + Number(quantite);
 
-    // 3. Mets à jour la BDD
     const { error: updateError } = await supabase
       .from('users')
       .update({ points: nouveauTotal })
       .eq('id', userId);
 
-    if (updateError) return res.status(500).json({ error: "Erreur update points", details: updateError.message });
+    if (updateError) {
+      return res.status(500).json({ error: "Erreur update points", details: updateError.message });
+    }
 
-    return res.status(200).json({ success: true, message: `Points crédités (+${quantite}) !` });
+    return res.status(200).json({ success: true, message: `Points crédités ! Nouveau total : ${nouveauTotal}` });
   }
 
+  // Autre type d'achat non géré
   return res.status(400).json({ error: "Type d'achat non supporté" });
 }
