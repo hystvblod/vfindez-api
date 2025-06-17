@@ -1,25 +1,62 @@
 import { createClient } from '@supabase/supabase-js';
+import { google } from 'googleapis';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
+const GOOGLE_JSON_KEY = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON); // Fichier .json entier en variable
+const PACKAGE_NAME = "com.tonapp.exemple";
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
+
+async function verifierRecuGoogle(receipt) {
+  const auth = new google.auth.GoogleAuth({
+    credentials: GOOGLE_JSON_KEY,
+    scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+  });
+
+  const client = await auth.getClient();
+  const publisher = google.androidpublisher({ version: 'v3', auth: client });
+
+  try {
+    const [purchaseToken, productId] = receipt.split('||'); // reçu formaté côté client
+    const res = await publisher.purchases.products.get({
+      packageName: PACKAGE_NAME,
+      productId,
+      token: purchaseToken,
+    });
+
+    return res.data?.purchaseState === 0; // 0 = Achat validé
+  } catch (err) {
+    console.error("Erreur vérification Google", err);
+    return false;
+  }
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const { userId, achat, quantite, receipt, plateforme } = req.body;
+
+  if (!userId || !achat || !receipt || !plateforme) {
+    return res.status(400).json({ error: "Paramètres manquants" });
   }
 
-  const { userId, achat, quantite } = req.body;
+  // ✅ Étape 1 : Vérification du reçu
+  let recuValide = false;
+  if (plateforme === "android") {
+    recuValide = await verifierRecuGoogle(receipt);
+  }
+  // Tu pourras ajouter `else if (plateforme === "ios") { ... }` plus tard
 
-  if (!userId || !achat) {
-    return res.status(400).json({ error: "userId ou achat manquant" });
+  if (!recuValide) {
+    return res.status(403).json({ error: "Reçu invalide ou frauduleux" });
   }
 
-  // PREMIUM (comme avant)
+  // ✅ Étape 2 : Appliquer les achats (comme tu faisais déjà)
   if (achat === "premium") {
     const start = new Date();
     const end = new Date();
@@ -38,13 +75,11 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, message: "Premium activé !" });
   }
 
-  // POINTS
   if (achat === "points" || achat === "piece") {
     if (!quantite || isNaN(quantite)) {
       return res.status(400).json({ error: "quantite manquante ou invalide" });
     }
 
-    // 1. Récupère points actuels
     const { data, error: getError } = await supabase
       .from('users')
       .select('points')
@@ -55,7 +90,6 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Utilisateur introuvable", details: getError.message });
     }
 
-    // 2. Additionne et update
     const nouveauTotal = (data?.points || 0) + Number(quantite);
 
     const { error: updateError } = await supabase
@@ -70,6 +104,5 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, message: `Points crédités ! Nouveau total : ${nouveauTotal}` });
   }
 
-  // Autre type d'achat non géré
   return res.status(400).json({ error: "Type d'achat non supporté" });
 }
