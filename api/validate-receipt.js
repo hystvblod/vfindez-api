@@ -3,11 +3,13 @@ import { google } from 'googleapis';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
-const GOOGLE_JSON_KEY = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON); // Fichier .json entier en variable
-const PACKAGE_NAME = "com.tonapp.exemple";
+const GOOGLE_JSON_KEY = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON); // Fichier .json complet
+const PACKAGE_NAME = "com.tonapp.exemple"; // <-- À personnaliser
+const APPLE_SHARED_SECRET = process.env.APPLE_SHARED_SECRET; // Dans App Store Connect
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
+// ---------- Vérification Google (Android) ----------
 async function verifierRecuGoogle(receipt) {
   const auth = new google.auth.GoogleAuth({
     credentials: GOOGLE_JSON_KEY,
@@ -32,6 +34,27 @@ async function verifierRecuGoogle(receipt) {
   }
 }
 
+// ---------- Vérification Apple (iOS) ----------
+async function verifierRecuApple(receipt) {
+  try {
+    const response = await fetch("https://buy.itunes.apple.com/verifyReceipt", {
+      method: "POST",
+      body: JSON.stringify({
+        'receipt-data': receipt,
+        'password': APPLE_SHARED_SECRET
+      }),
+      headers: { "Content-Type": "application/json" }
+    });
+
+    const result = await response.json();
+    return result.status === 0; // 0 = succès
+  } catch (e) {
+    console.error("Erreur vérification Apple", e);
+    return false;
+  }
+}
+
+// ---------- Handler principal ----------
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -45,18 +68,19 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Paramètres manquants" });
   }
 
-  // ✅ Étape 1 : Vérification du reçu
+  // ✅ Étape 1 : Vérification du reçu selon la plateforme
   let recuValide = false;
   if (plateforme === "android") {
     recuValide = await verifierRecuGoogle(receipt);
+  } else if (plateforme === "ios") {
+    recuValide = await verifierRecuApple(receipt);
   }
-  // Tu pourras ajouter `else if (plateforme === "ios") { ... }` plus tard
 
   if (!recuValide) {
     return res.status(403).json({ error: "Reçu invalide ou frauduleux" });
   }
 
-  // ✅ Étape 2 : Appliquer les achats (comme tu faisais déjà)
+  // ✅ Étape 2 : Appliquer les achats (comme avant)
   if (achat === "premium") {
     const start = new Date();
     const end = new Date();
